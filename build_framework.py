@@ -43,7 +43,7 @@ def getXCodeMajor():
     return 0
 
 class Builder:
-    def __init__(self, opencv, contrib, exclude, targets):
+    def __init__(self, opencv, contrib, targets):
         self.opencv = os.path.abspath(opencv)
         self.contrib = None
         if contrib:
@@ -52,7 +52,6 @@ class Builder:
                 self.contrib = os.path.abspath(modpath)
             else:
                 print("Note: contrib repository is bad - modules subfolder not found", file=sys.stderr)
-        self.exclude = exclude
         self.targets = targets
 
     def getBD(self, parent, t):
@@ -94,7 +93,8 @@ class Builder:
             sys.exit(1)
 
     def getToolchain(self, arch, target):
-        return None
+        toolchain = os.path.join(self.opencv, "platforms", "ios", "cmake", "Toolchains", "Toolchain-%s_Xcode.cmake" % target)
+        return toolchain
 
     def getCMakeArgs(self, arch, target):
         args = [
@@ -104,11 +104,6 @@ class Builder:
             "-DCMAKE_INSTALL_PREFIX=install",
             "-DCMAKE_BUILD_TYPE=Release",
         ]
-
-        if len(self.exclude) > 0:
-            args += ["-DBUILD_opencv_world=OFF"]
-            args += ("-DBUILD_opencv_%s=OFF" % m for m in self.exclude)
-
         return args
 
     def getBuildCommand(self, arch, target):
@@ -131,7 +126,7 @@ class Builder:
         toolchain = self.getToolchain(arch, target)
         cmakecmd = self.getCMakeArgs(arch, target) + \
             (["-DCMAKE_TOOLCHAIN_FILE=%s" % toolchain] if toolchain is not None else [])
-        if arch.startswith("armv") or arch.startswith("arm64"):
+        if arch.startswith("armv"):
             cmakecmd.append("-DENABLE_NEON=ON")
         cmakecmd.append(self.opencv)
         cmakecmd.extend(cmakeargs)
@@ -191,35 +186,15 @@ class Builder:
             d = os.path.join(framework_dir, *l[1])
             os.symlink(s, d)
 
-class iOSBuilder(Builder):
-
-    def getToolchain(self, arch, target):
-        toolchain = os.path.join(self.opencv, "platforms", "ios", "cmake", "Toolchains", "Toolchain-%s_Xcode.cmake" % target)
-        return toolchain
-
-    def getCMakeArgs(self, arch, target):
-        args = Builder.getCMakeArgs(self, arch, target)
-        args = args + [
-            '-DIOS_ARCH=%s' % arch
-        ]
-        return args
-
-
 if __name__ == "__main__":
     folder = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), "../.."))
     parser = argparse.ArgumentParser(description='The script builds OpenCV.framework for iOS.')
     parser.add_argument('out', metavar='OUTDIR', help='folder to put built framework')
     parser.add_argument('--opencv', metavar='DIR', default=folder, help='folder with opencv repository (default is "../.." relative to script location)')
     parser.add_argument('--contrib', metavar='DIR', default=None, help='folder with opencv_contrib repository (default is "None" - build only main framework)')
-    # parser.add_argument('--contrib', metavar='DIR', default=folder, help='folder with opencv_contrib repository (default is "None" -build only main framework)')
-    parser.add_argument('--without', metavar='MODULE', default=[], action='append', help='OpenCV modules to exclude from the framework')
     args = parser.parse_args()
 
-    b = iOSBuilder(args.opencv, args.contrib, args.without,
-        [
-            ("armv7", "iPhoneOS"),
-            ("arm64", "iPhoneOS"),
-        ] if os.environ.get('BUILD_PRECOMMIT', None) else
+    b = Builder(args.opencv, args.contrib,
         [
             ("armv7", "iPhoneOS"),
             ("armv7s", "iPhoneOS"),
